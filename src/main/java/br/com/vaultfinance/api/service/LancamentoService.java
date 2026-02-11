@@ -1,4 +1,5 @@
 package br.com.vaultfinance.api.service;
+import br.com.vaultfinance.api.security.SecurityUtils;
 
 import br.com.vaultfinance.api.domain.lancamento.Lancamento;
 import br.com.vaultfinance.api.domain.lancamento.StatusLancamento;
@@ -38,8 +39,9 @@ public class LancamentoService {
 
   @Transactional
   public LancamentoResponse criarReceitaOuDespesa(LancamentoCreateRequest req) {
-    var usuario = usuarioRepository.findById(req.usuarioId())
-      .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
+	 var usuarioId = SecurityUtils.getUsuarioId();
+	 var usuario = usuarioRepository.findById(usuarioId)
+			    .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
 
     var conta = contaRepository.findById(req.contaId())
       .orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
@@ -91,8 +93,10 @@ public class LancamentoService {
 
   @Transactional
   public LancamentoResponse criarTransferencia(TransferenciaCreateRequest req) {
-    var usuario = usuarioRepository.findById(req.usuarioId())
-      .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
+	  var usuarioId = SecurityUtils.getUsuarioId();
+
+	  var usuario = usuarioRepository.findById(usuarioId)
+	    .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
 
     if (req.contaOrigemId().equals(req.contaDestinoId())) {
       throw new IllegalArgumentException("Conta origem e destino não podem ser iguais");
@@ -144,6 +148,12 @@ public class LancamentoService {
     BigDecimal saldoOrigem = movimentacaoRepository.calcularSaldoAtual(origem.getId());
 
     return toResponse(lancSalvo, List.of(m1, m2), saldoOrigem);
+  }
+  
+  @Transactional(readOnly = true)
+  public List<LancamentoResponse> listarMeusLancamentos() {
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+    return listarPorUsuario(usuarioId);
   }
 
   @Transactional(readOnly = true)

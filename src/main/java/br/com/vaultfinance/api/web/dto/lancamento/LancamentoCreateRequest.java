@@ -11,7 +11,6 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 public record LancamentoCreateRequest(
-  @NotNull UUID usuarioId,
   @NotBlank @Size(max = 200) String descricao,
   @NotNull TipoCategoria tipo,
   @NotNull LocalDate dataOcorrencia,

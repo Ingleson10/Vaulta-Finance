@@ -8,7 +8,6 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/lancamentos")
@@ -20,18 +19,21 @@ public class LancamentoController {
     this.lancamentoService = lancamentoService;
   }
 
+  // Receita/Despesa (usuário vem do JWT)
   @PostMapping
   public LancamentoResponse criarReceitaOuDespesa(@RequestBody @Valid LancamentoCreateRequest req) {
     return lancamentoService.criarReceitaOuDespesa(req);
   }
 
-  @PostMapping("/transferencia")
+  // Transferência (usuário vem do JWT)
+  @PostMapping("/transferencias")
   public LancamentoResponse criarTransferencia(@RequestBody @Valid TransferenciaCreateRequest req) {
     return lancamentoService.criarTransferencia(req);
   }
 
-  @GetMapping("/usuario/{usuarioId}")
-  public List<LancamentoResponse> listarPorUsuario(@PathVariable UUID usuarioId) {
-    return lancamentoService.listarPorUsuario(usuarioId);
+  // Listar lançamentos do usuário autenticado
+  @GetMapping
+  public List<LancamentoResponse> listarMeusLancamentos() {
+    return lancamentoService.listarMeusLancamentos();
   }
 }
