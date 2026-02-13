@@ -2,65 +2,52 @@ package br.com.vaultfinance.api.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
-import java.util.UUID;
 
 @Service
 public class JwtService {
 
-  private final SecretKey key;
-  private final long expirationMinutes;
+  // ⚠️ Ideal: colocar no application.properties e ler via @Value
+  private static final String SECRET = "mude_essa_chave_para_uma_maior_e_bem_segura_com_32+chars";
+  private static final long EXPIRATION_MS = 1000L * 60 * 60 * 24; // 24h
 
-  public JwtService(
-    @Value("${security.jwt.secret}") String base64Secret,
-    @Value("${security.jwt.expiration-minutes}") long expirationMinutes
-  ) {
-    this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(base64Secret));
-    this.expirationMinutes = expirationMinutes;
+  private SecretKey key() {
+    return Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
   }
 
-  public String generateToken(UUID userId, String email) {
-    Instant now = Instant.now();
-    Instant exp = now.plus(expirationMinutes, ChronoUnit.MINUTES);
+  public String generateToken(String email) {
+    Date now = new Date();
+    Date exp = new Date(now.getTime() + EXPIRATION_MS);
 
     return Jwts.builder()
       .subject(email)
-      .claim("uid", userId.toString())
-      .issuedAt(Date.from(now))
-      .expiration(Date.from(exp))
-      .signWith(key)
+      .issuedAt(now)
+      .expiration(exp)
+      .signWith(key())
       .compact();
-  }
-
-  public String extractEmail(String token) {
-    return getClaims(token).getSubject();
-  }
-
-  public UUID extractUserId(String token) {
-    String uid = getClaims(token).get("uid", String.class);
-    return UUID.fromString(uid);
   }
 
   public boolean isValid(String token) {
     try {
-      getClaims(token);
+      extractAllClaims(token);
       return true;
     } catch (Exception e) {
       return false;
     }
   }
 
-  private Claims getClaims(String token) {
+  public String extractEmail(String token) {
+    return extractAllClaims(token).getSubject();
+  }
+
+  private Claims extractAllClaims(String token) {
     return Jwts.parser()
-      .verifyWith(key)
+      .verifyWith(key())
       .build()
       .parseSignedClaims(token)
       .getPayload();

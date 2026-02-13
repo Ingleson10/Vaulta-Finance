@@ -31,8 +31,8 @@ public class SecurityConfig {
       .authorizeHttpRequests(auth -> auth
         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
         .requestMatchers("/health").permitAll()
-        .requestMatchers("/api/auth/**").permitAll()
-        .anyRequest().authenticated()
+        .requestMatchers("/api/auth/**").permitAll() // ✅ público
+        .anyRequest().authenticated()               // ✅ resto protegido
       )
       .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
       .build();

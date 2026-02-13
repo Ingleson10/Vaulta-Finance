@@ -5,9 +5,11 @@ import br.com.vaultfinance.api.web.dto.categoria.CategoriaCreateRequest;
 import br.com.vaultfinance.api.web.dto.categoria.CategoriaResponse;
 import br.com.vaultfinance.api.web.dto.categoria.CategoriaUpdateRequest;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -20,19 +22,19 @@ public class CategoriaController {
     this.categoriaService = categoriaService;
   }
 
-  @PostMapping
-  public CategoriaResponse criar(@RequestBody @Valid CategoriaCreateRequest req) {
-    return categoriaService.criar(req);
-  }
-
-  @GetMapping("/usuario/{usuarioId}")
-  public List<CategoriaResponse> listarPorUsuario(@PathVariable UUID usuarioId) {
-    return categoriaService.listarPorUsuario(usuarioId);
+  @GetMapping
+  public Page<CategoriaResponse> listar(@PageableDefault(size = 10) Pageable pageable) {
+    return categoriaService.listarMinhasPaginado(pageable);
   }
 
   @GetMapping("/{id}")
-  public CategoriaResponse buscarPorId(@PathVariable UUID id) {
+  public CategoriaResponse buscar(@PathVariable UUID id) {
     return categoriaService.buscarPorId(id);
+  }
+
+  @PostMapping
+  public CategoriaResponse criar(@RequestBody @Valid CategoriaCreateRequest req) {
+    return categoriaService.criar(req);
   }
 
   @PutMapping("/{id}")

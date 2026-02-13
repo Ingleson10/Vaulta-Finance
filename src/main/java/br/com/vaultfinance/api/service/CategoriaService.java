@@ -1,15 +1,19 @@
 package br.com.vaultfinance.api.service;
 
 import br.com.vaultfinance.api.domain.categoria.Categoria;
+import br.com.vaultfinance.api.domain.exception.BusinessException;
+import br.com.vaultfinance.api.domain.exception.NotFoundException;
 import br.com.vaultfinance.api.repository.CategoriaRepository;
 import br.com.vaultfinance.api.repository.UsuarioRepository;
+import br.com.vaultfinance.api.security.SecurityUtils;
 import br.com.vaultfinance.api.web.dto.categoria.CategoriaCreateRequest;
 import br.com.vaultfinance.api.web.dto.categoria.CategoriaResponse;
 import br.com.vaultfinance.api.web.dto.categoria.CategoriaUpdateRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -25,11 +29,13 @@ public class CategoriaService {
 
   @Transactional
   public CategoriaResponse criar(CategoriaCreateRequest req) {
-    var usuario = usuarioRepository.findById(req.usuarioId())
-      .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
+    UUID usuarioId = SecurityUtils.getUsuarioId();
 
-    if (categoriaRepository.existsByUsuarioIdAndNomeIgnoreCase(req.usuarioId(), req.nome())) {
-      throw new IllegalArgumentException("Já existe uma categoria com esse nome para este usuário");
+    var usuario = usuarioRepository.findById(usuarioId)
+      .orElseThrow(() -> new NotFoundException("Usuário não encontrado"));
+
+    if (categoriaRepository.existsByUsuarioIdAndNomeIgnoreCase(usuarioId, req.nome())) {
+      throw new BusinessException("Já existe uma categoria com esse nome para este usuário");
     }
 
     var c = new Categoria();
@@ -39,33 +45,34 @@ public class CategoriaService {
     c.setCor(req.cor());
     c.setIcone(req.icone());
 
-    var salva = categoriaRepository.save(c);
-    return toResponse(salva);
+    return toResponse(categoriaRepository.save(c));
   }
 
   @Transactional(readOnly = true)
-  public List<CategoriaResponse> listarPorUsuario(UUID usuarioId) {
-    return categoriaRepository.findByUsuarioId(usuarioId).stream()
-      .map(this::toResponse)
-      .toList();
+  public Page<CategoriaResponse> listarMinhasPaginado(Pageable pageable) {
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+    return categoriaRepository.findAllByUsuarioId(usuarioId, pageable).map(this::toResponse);
   }
 
   @Transactional(readOnly = true)
   public CategoriaResponse buscarPorId(UUID id) {
-    return categoriaRepository.findById(id)
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    return categoriaRepository.findByIdAndUsuarioId(id, usuarioId)
       .map(this::toResponse)
-      .orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada"));
+      .orElseThrow(() -> new NotFoundException("Categoria não encontrada"));
   }
 
   @Transactional
   public CategoriaResponse atualizar(UUID id, CategoriaUpdateRequest req) {
-    var c = categoriaRepository.findById(id)
-      .orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada"));
+    UUID usuarioId = SecurityUtils.getUsuarioId();
 
-    // Se mudou o nome, valida duplicidade
+    var c = categoriaRepository.findByIdAndUsuarioId(id, usuarioId)
+      .orElseThrow(() -> new NotFoundException("Categoria não encontrada"));
+
     if (!c.getNome().equalsIgnoreCase(req.nome())
-        && categoriaRepository.existsByUsuarioIdAndNomeIgnoreCase(c.getUsuario().getId(), req.nome())) {
-      throw new IllegalArgumentException("Já existe uma categoria com esse nome para este usuário");
+      && categoriaRepository.existsByUsuarioIdAndNomeIgnoreCase(usuarioId, req.nome())) {
+      throw new BusinessException("Já existe uma categoria com esse nome para este usuário");
     }
 
     c.setNome(req.nome());
@@ -78,9 +85,12 @@ public class CategoriaService {
 
   @Transactional
   public void deletar(UUID id) {
-    if (!categoriaRepository.existsById(id)) {
-      throw new IllegalArgumentException("Categoria não encontrada");
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    if (!categoriaRepository.existsByIdAndUsuarioId(id, usuarioId)) {
+      throw new NotFoundException("Categoria não encontrada");
     }
+
     categoriaRepository.deleteById(id);
   }
 

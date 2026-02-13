@@ -1,16 +1,23 @@
 package br.com.vaultfinance.api.service;
-import br.com.vaultfinance.api.security.SecurityUtils;
 
+import br.com.vaultfinance.api.domain.exception.BusinessException;
+import br.com.vaultfinance.api.domain.exception.NotFoundException;
 import br.com.vaultfinance.api.domain.lancamento.Lancamento;
+import br.com.vaultfinance.api.domain.lancamento.PeriodoPreset;
+import br.com.vaultfinance.api.domain.lancamento.PeriodoUtils;
 import br.com.vaultfinance.api.domain.lancamento.StatusLancamento;
 import br.com.vaultfinance.api.domain.lancamento.TipoCategoria;
 import br.com.vaultfinance.api.domain.movimentacao.Movimentacao;
 import br.com.vaultfinance.api.repository.*;
+import br.com.vaultfinance.api.security.SecurityUtils;
 import br.com.vaultfinance.api.web.dto.lancamento.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,23 +44,74 @@ public class LancamentoService {
     this.categoriaRepository = categoriaRepository;
   }
 
+  // ✅ Paginação + filtro por período
+  // Regras:
+  // - Se inicio/fim vierem, tem prioridade
+  // - Senão usa "periodo" (MONTH, LAST_30_DAYS, YEAR)
+  // - Se nada vier, lista tudo paginado
+  @Transactional(readOnly = true)
+  public Page<LancamentoResponse> listarPaginado(LocalDate inicio, LocalDate fim, PeriodoPreset periodo, Pageable pageable) {
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    // se não veio inicio/fim, tenta resolver pelo preset
+    if (inicio == null && fim == null && periodo != null && periodo != PeriodoPreset.ALL) {
+      LocalDate[] intervalo = PeriodoUtils.resolver(periodo);
+      inicio = intervalo[0];
+      fim = intervalo[1];
+    }
+
+    // se veio só um dos dois, aplica regra de negócio
+    if ((inicio == null) != (fim == null)) {
+      throw new BusinessException("Informe inicio e fim juntos, ou use o parâmetro periodo");
+    }
+
+    Page<Lancamento> page;
+
+    if (inicio != null && fim != null) {
+      page = lancamentoRepository.findAllByUsuarioIdAndDataOcorrenciaBetween(usuarioId, inicio, fim, pageable);
+    } else {
+      page = lancamentoRepository.findAllByUsuarioId(usuarioId, pageable);
+    }
+
+    return page.map(l -> {
+      var movs = movimentacaoRepository.findByLancamentoId(l.getId());
+      var movResponses = movs.stream().map(m -> new MovimentacaoResponse(
+        m.getId(),
+        m.getConta().getId(),
+        m.getCategoria() != null ? m.getCategoria().getId() : null,
+        m.getNatureza(),
+        m.getValor()
+      )).toList();
+
+      return new LancamentoResponse(
+        l.getId(),
+        l.getUsuario().getId(),
+        l.getDescricao(),
+        l.getTipo(),
+        l.getStatus(),
+        l.getDataOcorrencia(),
+        l.getObservacoes(),
+        movResponses,
+        null
+      );
+    });
+  }
+
   @Transactional
   public LancamentoResponse criarReceitaOuDespesa(LancamentoCreateRequest req) {
-	 var usuarioId = SecurityUtils.getUsuarioId();
-	 var usuario = usuarioRepository.findById(usuarioId)
-			    .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
 
-    var conta = contaRepository.findById(req.contaId())
-      .orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
+    UUID usuarioId = SecurityUtils.getUsuarioId();
 
-    if (!conta.getUsuario().getId().equals(usuario.getId())) {
-      throw new IllegalArgumentException("Conta não pertence ao usuário");
-    }
+    var usuario = usuarioRepository.findById(usuarioId)
+      .orElseThrow(() -> new NotFoundException("Usuário não encontrado"));
+
+    var conta = contaRepository.findByIdAndUsuarioId(req.contaId(), usuarioId)
+      .orElseThrow(() -> new NotFoundException("Conta não encontrada"));
 
     var lanc = new Lancamento();
     lanc.setUsuario(usuario);
     lanc.setDescricao(req.descricao());
-    lanc.setTipo(req.tipo()); // TipoCategoria (RECEITA/DESPESA)
+    lanc.setTipo(req.tipo());
     lanc.setStatus(StatusLancamento.CONFIRMADO);
     lanc.setDataOcorrencia(req.dataOcorrencia());
     lanc.setObservacoes(req.observacoes());
@@ -65,25 +123,14 @@ public class LancamentoService {
     mov.setConta(conta);
 
     if (req.categoriaId() != null) {
-      var cat = categoriaRepository.findById(req.categoriaId())
-        .orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada"));
-      if (!cat.getUsuario().getId().equals(usuario.getId())) {
-        throw new IllegalArgumentException("Categoria não pertence ao usuário");
-      }
+      var cat = categoriaRepository.findByIdAndUsuarioId(req.categoriaId(), usuarioId)
+        .orElseThrow(() -> new NotFoundException("Categoria não encontrada"));
       mov.setCategoria(cat);
     }
 
-    // Receita = crédito / Despesa = débito
-    if (req.tipo() == TipoCategoria.RECEITA) {
-      mov.setNatureza("CREDITO");
-    } else if (req.tipo() == TipoCategoria.DESPESA) {
-      mov.setNatureza("DEBITO");
-    } else {
-      // deve ser impossível com enum, mas mantive por segurança
-      throw new IllegalArgumentException("Tipo inválido. Use RECEITA ou DESPESA");
-    }
-
+    mov.setNatureza(req.tipo() == TipoCategoria.RECEITA ? "CREDITO" : "DEBITO");
     mov.setValor(req.valor());
+
     var movSalva = movimentacaoRepository.save(mov);
 
     BigDecimal saldo = movimentacaoRepository.calcularSaldoAtual(conta.getId());
@@ -93,40 +140,28 @@ public class LancamentoService {
 
   @Transactional
   public LancamentoResponse criarTransferencia(TransferenciaCreateRequest req) {
-	  var usuarioId = SecurityUtils.getUsuarioId();
 
-	  var usuario = usuarioRepository.findById(usuarioId)
-	    .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    var usuario = usuarioRepository.findById(usuarioId)
+      .orElseThrow(() -> new NotFoundException("Usuário não encontrado"));
 
     if (req.contaOrigemId().equals(req.contaDestinoId())) {
-      throw new IllegalArgumentException("Conta origem e destino não podem ser iguais");
+      throw new BusinessException("Conta origem e destino não podem ser iguais");
     }
 
-    var origem = contaRepository.findById(req.contaOrigemId())
-      .orElseThrow(() -> new IllegalArgumentException("Conta origem não encontrada"));
+    var origem = contaRepository.findByIdAndUsuarioId(req.contaOrigemId(), usuarioId)
+      .orElseThrow(() -> new NotFoundException("Conta origem não encontrada"));
 
-    var destino = contaRepository.findById(req.contaDestinoId())
-      .orElseThrow(() -> new IllegalArgumentException("Conta destino não encontrada"));
-
-    if (!origem.getUsuario().getId().equals(usuario.getId())
-      || !destino.getUsuario().getId().equals(usuario.getId())) {
-      throw new IllegalArgumentException("As contas devem pertencer ao usuário");
-    }
+    var destino = contaRepository.findByIdAndUsuarioId(req.contaDestinoId(), usuarioId)
+      .orElseThrow(() -> new NotFoundException("Conta destino não encontrada"));
 
     var lanc = new Lancamento();
     lanc.setUsuario(usuario);
     lanc.setDescricao(req.descricao());
-
-    // IMPORTANTE:
-    // Seu enum TipoCategoria (e o tipo Postgres tipo_categoria) tem RECEITA/DESPESA.
-    // Transferência não encaixa aqui sem mudar o enum no banco.
-    // Então não setamos "tipo" para transferência.
-    // Se você quiser MUITO registrar isso, crie um novo enum/coluna tipo_lancamento.
-    // lanc.setTipo(...);
-
     lanc.setStatus(StatusLancamento.CONFIRMADO);
     lanc.setDataOcorrencia(req.dataOcorrencia());
-    lanc.setObservacoes(req.observacoes()); // ajuste conforme seu TransferenciaCreateRequest
+    lanc.setObservacoes(req.observacoes());
 
     var lancSalvo = lancamentoRepository.save(lanc);
 
@@ -149,15 +184,11 @@ public class LancamentoService {
 
     return toResponse(lancSalvo, List.of(m1, m2), saldoOrigem);
   }
-  
+
   @Transactional(readOnly = true)
   public List<LancamentoResponse> listarMeusLancamentos() {
     UUID usuarioId = SecurityUtils.getUsuarioId();
-    return listarPorUsuario(usuarioId);
-  }
 
-  @Transactional(readOnly = true)
-  public List<LancamentoResponse> listarPorUsuario(UUID usuarioId) {
     return lancamentoRepository.findByUsuarioId(usuarioId).stream()
       .map(l -> {
         var movs = movimentacaoRepository.findByLancamentoId(l.getId());

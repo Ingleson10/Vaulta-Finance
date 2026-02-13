@@ -1,13 +1,12 @@
 package br.com.vaultfinance.api.web.controller;
 
-import br.com.vaultfinance.api.web.dto.auth.AuthResponse;
 import br.com.vaultfinance.api.domain.usuario.Usuario;
 import br.com.vaultfinance.api.repository.UsuarioRepository;
 import br.com.vaultfinance.api.security.JwtService;
-import br.com.vaultfinance.api.security.UsuarioPrincipal;
-import br.com.vaultfinance.api.web.dto.auth.*;
+import br.com.vaultfinance.api.web.dto.auth.AuthResponse;
+import br.com.vaultfinance.api.web.dto.auth.LoginRequest;
+import br.com.vaultfinance.api.web.dto.auth.RegisterRequest;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,48 +16,55 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+  private final AuthenticationManager authenticationManager;
   private final UsuarioRepository usuarioRepository;
   private final PasswordEncoder passwordEncoder;
-  private final AuthenticationManager authenticationManager;
   private final JwtService jwtService;
 
   public AuthController(
+    AuthenticationManager authenticationManager,
     UsuarioRepository usuarioRepository,
     PasswordEncoder passwordEncoder,
-    AuthenticationManager authenticationManager,
     JwtService jwtService
   ) {
+    this.authenticationManager = authenticationManager;
     this.usuarioRepository = usuarioRepository;
     this.passwordEncoder = passwordEncoder;
-    this.authenticationManager = authenticationManager;
     this.jwtService = jwtService;
   }
 
   @PostMapping("/register")
-  @ResponseStatus(HttpStatus.CREATED)
-  public void register(@Valid @RequestBody RegisterRequest req) {
-    if (usuarioRepository.existsByEmail(req.email())) {
+  public AuthResponse register(@RequestBody @Valid RegisterRequest req) {
+
+    if (usuarioRepository.existsByEmailIgnoreCase(req.email())) {
       throw new IllegalArgumentException("E-mail já cadastrado");
     }
 
-    var u = new Usuario();
+    Usuario u = new Usuario();
     u.setNome(req.nome());
     u.setEmail(req.email());
     u.setSenhaHash(passwordEncoder.encode(req.senha()));
     u.setAtivo(true);
 
-    usuarioRepository.save(u);
+    Usuario salvo = usuarioRepository.save(u);
+
+    String token = jwtService.generateToken(salvo.getEmail());
+
+    return new AuthResponse(token, salvo.getId(), salvo.getEmail(), salvo.getNome());
   }
 
   @PostMapping("/login")
-  public AuthResponse login(@Valid @RequestBody LoginRequest req) {
-    var auth = authenticationManager.authenticate(
+  public AuthResponse login(@RequestBody @Valid LoginRequest req) {
+
+    authenticationManager.authenticate(
       new UsernamePasswordAuthenticationToken(req.email(), req.senha())
     );
 
-    var principal = (UsuarioPrincipal) auth.getPrincipal();
-    String token = jwtService.generateToken(principal.getId(), principal.getUsername());
+    Usuario usuario = usuarioRepository.findByEmailIgnoreCase(req.email())
+      .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
 
-    return new AuthResponse(token);
+    String token = jwtService.generateToken(usuario.getEmail());
+
+    return new AuthResponse(token, usuario.getId(), usuario.getEmail(), usuario.getNome());
   }
 }

@@ -1,15 +1,18 @@
 package br.com.vaultfinance.api.service;
 
 import br.com.vaultfinance.api.domain.conta.Conta;
+import br.com.vaultfinance.api.domain.exception.NotFoundException;
 import br.com.vaultfinance.api.repository.ContaRepository;
 import br.com.vaultfinance.api.repository.UsuarioRepository;
+import br.com.vaultfinance.api.security.SecurityUtils;
 import br.com.vaultfinance.api.web.dto.conta.ContaCreateRequest;
 import br.com.vaultfinance.api.web.dto.conta.ContaResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -25,8 +28,10 @@ public class ContaService {
 
   @Transactional
   public ContaResponse criar(ContaCreateRequest req) {
-    var usuario = usuarioRepository.findById(req.usuarioId())
-      .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    var usuario = usuarioRepository.findById(usuarioId)
+      .orElseThrow(() -> new NotFoundException("Usuário não encontrado"));
 
     var conta = new Conta();
     conta.setUsuario(usuario);
@@ -41,10 +46,29 @@ public class ContaService {
   }
 
   @Transactional(readOnly = true)
-  public List<ContaResponse> listarPorUsuario(UUID usuarioId) {
-    return contaRepository.findByUsuarioId(usuarioId).stream()
+  public Page<ContaResponse> listarMinhasPaginado(Pageable pageable) {
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+    return contaRepository.findAllByUsuarioId(usuarioId, pageable).map(this::toResponse);
+  }
+
+  @Transactional(readOnly = true)
+  public ContaResponse buscarPorId(UUID id) {
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    return contaRepository.findByIdAndUsuarioId(id, usuarioId)
       .map(this::toResponse)
-      .toList();
+      .orElseThrow(() -> new NotFoundException("Conta não encontrada"));
+  }
+
+  @Transactional
+  public void deletar(UUID id) {
+    UUID usuarioId = SecurityUtils.getUsuarioId();
+
+    if (!contaRepository.existsByIdAndUsuarioId(id, usuarioId)) {
+      throw new NotFoundException("Conta não encontrada");
+    }
+
+    contaRepository.deleteById(id);
   }
 
   private ContaResponse toResponse(Conta c) {

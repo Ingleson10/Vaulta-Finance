@@ -1,3 +1,10 @@
 package br.com.vaultfinance.api.web.dto.auth;
 
-public record AuthResponse(String token) {}
+import java.util.UUID;
+
+public record AuthResponse(
+  String token,
+  UUID usuarioId,
+  String email,
+  String nome
+) {}
