@@ -52,23 +52,22 @@ public class LancamentoService {
     this.categoriaRepository = categoriaRepository;
   }
 
-  // ✅ Paginação + filtro por período
-  // Regras:
-  // - Se inicio/fim vierem, tem prioridade
-  // - Senão usa "periodo" (MONTH, LAST_30_DAYS, YEAR)
-  // - Se nada vier, lista tudo paginado
+  // ✅ NOVO: Método para o Dashboard
+  @Transactional(readOnly = true)
+  public BigDecimal somarTotalPorTipo(UUID usuarioId, String tipo) {
+      return lancamentoRepository.somarTotalPorTipo(usuarioId, tipo);
+  }
+
   @Transactional(readOnly = true)
   public Page<LancamentoResponse> listarPaginado(LocalDate inicio, LocalDate fim, PeriodoPreset periodo, Pageable pageable) {
     UUID usuarioId = SecurityUtils.getUsuarioId();
 
-    // se não veio inicio/fim, tenta resolver pelo preset
     if (inicio == null && fim == null && periodo != null && periodo != PeriodoPreset.ALL) {
       LocalDate[] intervalo = PeriodoUtils.resolver(periodo);
       inicio = intervalo[0];
       fim = intervalo[1];
     }
 
-    // se veio só um dos dois, aplica regra de negócio
     if ((inicio == null) != (fim == null)) {
       throw new BusinessException("Informe inicio e fim juntos, ou use o parâmetro periodo");
     }
@@ -107,7 +106,6 @@ public class LancamentoService {
 
   @Transactional
   public LancamentoResponse criarReceitaOuDespesa(LancamentoCreateRequest req) {
-
     UUID usuarioId = SecurityUtils.getUsuarioId();
 
     var usuario = usuarioRepository.findById(usuarioId)
@@ -148,7 +146,6 @@ public class LancamentoService {
 
   @Transactional
   public LancamentoResponse criarTransferencia(TransferenciaCreateRequest req) {
-
     UUID usuarioId = SecurityUtils.getUsuarioId();
 
     var usuario = usuarioRepository.findById(usuarioId)
